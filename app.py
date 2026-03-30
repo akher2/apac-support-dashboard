@@ -2,45 +2,60 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# 1. PAGE SETUP
-st.set_page_config(page_title="APAC & Rubrik Support Dashboard", layout="wide")
-st.title("🌏 APAC Support Operations")
+# 1. PAGE CONFIG
+st.set_page_config(page_title="🌏 APAC Support Portal", layout="wide", page_icon="🔐")
 
-# 2. THE SECURE CONNECTION
-# We are calling the 'nicknames' from the Streamlit Vault (Secrets)
-try:
-    # Get the URLs from the secret vault
-    INACT_URL = st.secrets["inactivity_url"]
-    ASSIGN_URL = st.secrets["assignment_url"]
+# 2. LOGIN LOGIC
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.markdown("<h2 style='text-align: center;'>APAC & Rubrik Operations Center</h2>", unsafe_allow_value=True)
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            password = st.text_input("Please enter the Security Key", type="password")
+            if st.button("Enter Dashboard"):
+                if password == st.secrets["DASHBOARD_PASSWORD"]:
+                    st.session_state["password_correct"] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Access Denied: Incorrect Password")
+        return False
+    return True
 
-    conn = st.connection("gsheets", type=GSheetsConnection)
+# 3. SECURE CONTENT (Only runs if password is correct)
+if check_password():
+    st.sidebar.success("✅ Secure Connection Active")
+    if st.sidebar.button("Logout"):
+        del st.session_state["password_correct"]
+        st.rerun()
 
-    @st.cache_data(ttl=600)
-    def load_data():
-        # Using the nicknames to pull data
-        df_inact = conn.read(spreadsheet=INACT_URL)
-        df_assign = conn.read(spreadsheet=ASSIGN_URL)
-        return df_inact, df_assign
+    st.title("🌏 APAC Support & Rubrik Report")
+    
+    try:
+        # Connect to Sheets using Secrets
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        
+        # Pull Data
+        df_inact = conn.read(spreadsheet=st.secrets["inactivity_url"])
+        df_assign = conn.read(spreadsheet=st.secrets["assignment_url"])
 
-    df_inact, df_assign = load_data()
+        # Display Metrics
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Inactive Cases (>48h)", len(df_inact))
+        m2.metric("Today's New Assignments", len(df_assign))
+        m3.metric("Last Data Refresh", pd.Timestamp.now().strftime("%H:%M %p"))
 
-    # 3. THE DASHBOARD VISUALS
-    kpi1, kpi2 = st.columns(2)
-    kpi1.metric("Inactive Cases", len(df_inact))
-    kpi2.metric("Today's Assignments", len(df_assign))
+        st.divider()
 
-    st.divider()
+        # Visuals
+        left, right = st.columns(2)
+        with left:
+            st.subheader("📊 Team Workload Today")
+            # Replace 'Engineer' with your actual column name
+            st.bar_chart(df_assign['Engineer'].value_counts())
+        
+        with right:
+            st.subheader("⚠️ Critical Inactivity List")
+            st.dataframe(df_inact, use_container_width=True)
 
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Assignment Breakdown")
-        # Ensure 'Engineer' matches your Google Sheet header exactly
-        st.bar_chart(df_assign['Engineer'].value_counts())
-
-    with right:
-        st.subheader("Detailed Inactivity List")
-        st.dataframe(df_inact, use_container_width=True)
-
-except Exception as e:
-    st.error("🔒 Security Error: Please add your Google Sheet URLs to the Streamlit Secrets vault.")
-    st.info("The code is public, but the data access is currently locked.")
+    except Exception as e:
+        st.error("🚨 Configuration Error: Ensure your Google Sheet URLs are correct in the Secrets vault.")
